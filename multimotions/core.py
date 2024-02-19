@@ -63,43 +63,55 @@ class DataProcessor:
                 print("Stopping monitoring")
                 break
 
-    def process_data(self):
-        # This function would ideally process the data from `web_data_path` and `imotion_data_path`
-        # Since implementation details are not provided, this is a placeholder
-        pass
+    def parse_mouse_actions_to_dataframe(self, activity_file):
+        structured_data = []
+        with open(activity_file, encoding="utf-8") as file:
+            for line in file:
+                action_details = {}
+                parts = line.split(" ")
+                action_type = (
+                    "moved"
+                    if "moved" in line
+                    else "clicked"
+                    if "clicked" in line
+                    else "scrolled"
+                )
+                coords = [
+                    coord.split("-")[1].replace(",", "")
+                    for coord in parts
+                    if "-" in coord
+                ]
+                x, y = [int(float(coord)) for coord in coords[:2]]
+
+                action_details["action"] = action_type
+                action_details["x"] = x
+                action_details["y"] = y
+
+                # Additional details for clicked and scrolled actions
+                if action_type == "clicked" or action_type == "scrolled":
+                    details = " ".join(parts[5:])
+                    action_details["details"] = details.strip()
+
+                structured_data.append(action_details)
+
+        return pd.DataFrame(structured_data)
 
     def plot_data(self):
         for screenshot_path, activity_file in zip(
             self.screenshot_paths, self.mouse_activity_files
         ):
+            df = self.parse_mouse_actions_to_dataframe(activity_file)
+
             img = plt.imread(screenshot_path)
             display_array = np.zeros(img.shape[:2])
 
-            with open(activity_file, encoding="utf-8") as file:
-                for line in file:
-                    if "moved" in line or "clicked" in line:
-                        parts = line.split(" ")
-                        coords = [
-                            coord.split("-")[1].replace(",", "")
-                            for coord in parts
-                            if "-" in coord
-                        ]
-                        x, y = [int(float(coord)) for coord in coords]
-                        print(x, y)
-                        display_array[y, x] += 1
+            for index, row in df.iterrows():
+                x, y = row["x"], row["y"]
+                display_array[y, x] += 1
 
             plt.imshow(img, alpha=0.8)
             plt.axis("off")
 
             smoothed = gaussian_filter(display_array, sigma=50)
             plt.imshow(smoothed, cmap="jet", alpha=0.5)
-            plt.show()
-
-    def to_csv(self):
-        # This function would ideally export processed data to a CSV file
-        # The actual data processing is not implemented, so this is a placeholder
-        # Assuming processed data is a DataFrame `df`
-        df = pd.DataFrame()  # Placeholder DataFrame
-        csv_path = self.output_dir + ".csv"
-        df.to_csv(csv_path, index=False)
-        print(f"Data exported to {csv_path}")
+            plt.show()  # Show the plot for each screenshot and activity pair
