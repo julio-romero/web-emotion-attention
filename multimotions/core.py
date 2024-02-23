@@ -312,20 +312,104 @@ class DataProcessor:
 		
 		self.split_data = self.merged_data.groupby('URL')
 		# Iterate over the groups and save each group as a separate CSV file
+		url_dataframes=[]
 		for name, group in self.split_data:
-			# Save each group as a separate dataframe
-			pass
+			# Save each group as a list of dataframes
+			url_dataframes.append(group)
+		return url_dataframes
+			
 
 
-	def plot_heatmap(self, data, x, y, title, xlabel, ylabel, output_path):
-		fig, ax = plt.subplots(figsize=(10, 8))
-		heatmap = ax.hist2d(data[x], data[y], bins=100, cmap='viridis')
-		ax.set_title(title)
-		ax.set_xlabel(xlabel)
-		ax.set_ylabel(ylabel)
-		fig.colorbar(heatmap[3], ax=ax)
-		plt.savefig(output_path)
+	def plot_heatmap(self, data):
+		# Get the unique image path from the dataframe
+		img_path = data['Image_Path'].unique()[0]
+
+		# Load screenshot as image
+		img = Image.open(img_path)
+		img_width, img_height = img.size
+		
+		# Calculate the normalized x and y coordinates
+		P = data['Scroll Percentage'] / 100
+		x = data['MeanGazeX']
+		y = abs(data['MeanGazeY']) + (P * img_height)
+		
+
+		# Compute the point densities
+		xy = np.vstack([x, y])
+		z = gaussian_kde(xy)(xy)
+
+		# Create the plot
+		fig, ax = plt.subplots()
+		ax.imshow(img, extent=[0, img_width, img_height, 0])
+
+		# scatter the data and set the parameters 
+		sc= ax.scatter(
+		x, y, 
+		s=500,                 # size of markers
+		c=z,                   # color based on densities
+		cmap='RdYlGn_r',       # colormap from red to green
+		alpha=0.05,            # transparency
+		marker='o',            # marker shape
+		# edgecolors='black',  # edge color of markers
+		linewidths=1.5         # edge line width
+		)
+	 	# Add a colorbar at the top with horizontal orientation
+		# cbar = fig.colorbar(sc, cax=cbar_ax_top, orientation='horizontal')
+		ax.set_xlim(x.min(), img_width)
+		ax.set_ylim(img_height, 0)
+		ax.axis('off')
+
+		# Remove the boundries  
+		plt.tight_layout()
+		plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+		plt.gca().set_axis_off()
+		plt.gca().xaxis.set_major_locator(plt.NullLocator())
+		plt.gca().yaxis.set_major_locator(plt.NullLocator())
+		#return the plot
+		return fig
+	
+	def create_heatmap(self):
+		images = self.heatmaps_plotting()
+		images_per_row=5
+		num_images = len(images)
+		num_rows = (num_images + images_per_row - 1) // images_per_row  # Calculate the number of rows needed
+
+		# Create a figure with subplots in a grid
+		fig, axes = plt.subplots(num_rows, images_per_row, figsize=(20, num_rows * 4))
+		
+		# Flatten axes array for easy iteration, in case of a single row or column
+		if num_rows == 1:
+			axes = np.array([axes])
+		axes = axes.flatten()
+
+		for ax, img in zip(axes, images):
+			# Check if the image is a byte array, then convert it to a PIL Image
+			if isinstance(img, bytes):
+				img = Image.open(BytesIO(img))
+
+			# Display the image
+			ax.imshow(img)
+			ax.axis('off')  # Hide the axes ticks
+
+		# Hide any unused subplot axes if the number of images is not a perfect multiple of `images_per_row`
+		for ax in axes[num_images:]:
+			ax.axis('off')
+
+		plt.tight_layout()
 		plt.show()
+
+	def heatmaps_plotting(self):
+		# Split the data into different sections based on the URL
+		url_dataframes = self.split_data()
+		# Initialize an empty list to store all output 
+		outputs=[]
+		# Iterate over the groups and save each group as a separate CSV file
+		for data in url_dataframes:
+			outputs.extend(self.plot_heatmap(data))
+		return outputs
+
+	
+		
 			
 			
 
