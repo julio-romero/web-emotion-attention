@@ -310,7 +310,6 @@ class DataProcessor:
                 self.output_data = pd.concat([self.output_data, new_row], ignore_index=True)
                 self.web_data = pd.concat([self.web_data, new_row], ignore_index=True)
 
-        self.process_merged_data()
         self.process_imotion_data()
         self.process_merged_data()
 
