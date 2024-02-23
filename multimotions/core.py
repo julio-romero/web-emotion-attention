@@ -10,28 +10,42 @@ from pynput.mouse import Listener
 from scipy.ndimage import gaussian_filter
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException
+from PIL import Image
+from io import BytesIO
 
 
 class WebPageCapture:
 	def __init__(self, chrome_driver_path):
 		self.chrome_driver_path = chrome_driver_path
 	
-	def capture_screenshot(self, url, output_path):
+	def capture_screenshot(self, url):
 		chrome_options = Options()
 		chrome_options.add_argument("--headless")
 		chrome_options.add_argument("--window-size=1920x1080")
 		chrome_options.add_argument("--hide-scrollbars")
 		driver = webdriver.Chrome(self.chrome_driver_path, options=chrome_options)
 		driver.set_page_load_timeout(60)  # set the page load timeout
-		driver.get(url)
+		
+		for _ in range(5):  # Retry up to 5 times
+			try:
+				start_time = time.time()
+				driver.get(url)
+				end_time = time.time()
+				print(f"Time taken to load {url}: {end_time - start_time} seconds")
+				break
+			except TimeoutException:
+							print("Loading took too much time, retrying...")
 		# Set the width and height of the browser window to the size of the whole document
 		total_width = driver.execute_script("return document.body.offsetWidth")
 		total_height = driver.execute_script("return document.body.parentNode.scrollHeight")
 		driver.set_window_size(total_width, total_height)
-		screenshot = driver.get_screenshot_as_png()
+		screenshot_bytes = driver.get_screenshot_as_png()
+		# Optionally, convert bytes to Image for manipulation or viewing
+		screenshot_img = Image.open(BytesIO(screenshot_bytes))
 		driver.quit()
-		with open(output_path, 'wb') as file:
-			file.write(screenshot)
+		return screenshot_img
+		
 	
 	def capture_html(self, url, output_path):
 		chrome_options = Options()
@@ -50,7 +64,13 @@ class DataProcessor:
 		self.web_data_path = web_data_path
 		self.imotion_data_path = imotion_data_path
 		self.output_dir = output_dir
+		self.output_data = pd.DataFrame(columns=['URL', 'Image_Path'])
+		self.web_data = pd.read_csv(self.web_data_path,  skiprows=1, names=['Time (UTC)', 
+							'Event', 'Scroll Position', 'Scroll Percentage', 'Mouse X', 'Mouse Y','URL'])
+		# Get the unique URLs from the data
+		self.unique_urls = self.web_data["URL"].unique()
 		self.capture_handler = WebPageCapture(chrome_driver_path="path/to/chromedriver")
+		
 		if not os.path.exists(output_dir):
 			os.makedirs(output_dir)
 		self.screenshot_paths = []
@@ -165,60 +185,133 @@ class DataProcessor:
 
 		# Convert the datetime format to string with milliseconds
 		gaze_data['Timestamp'] = gaze_data['Timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S.%f')
-		eye_tracking_data= gaze_data.copy()
-		return eye_tracking_data
+		self.eye_tracking_data= gaze_data.copy()
+
+	def process_web_data(self):
+		# Replace NaN with 0 only at the beginning of each url sequence
+		self.web_data.reset_index(drop=True, inplace=True)
+		self.web_data['Scroll Percentage'] = self.web_data.groupby((self.web_data['URL'] != self.web_data['URL'].shift()).cumsum())['Scroll Percentage'].apply(lambda group: group.fillna(0, limit=1)).reset_index(drop=True)
+
+		# Fill other NaN values (not at the start of a sequence) with the last valid observation forward to next valid
+		self.web_data['Scroll Percentage'].fillna(method='ffill', inplace=True)
+
+		# fill the null for the web data 
+		self.web_data['Scroll Position'].fillna(method='ffill', inplace=True)
+		self.web_data['Scroll Position'].fillna(method='bfill', inplace=True)
+		self.web_data['Mouse X'].fillna(method='ffill', inplace=True)
+		self.web_data['Mouse X'].fillna(method='bfill', inplace=True)
+		self.web_data['Mouse Y'].fillna(method='ffill', inplace=True)
+		self.web_data['Mouse Y'].fillna(method='bfill', inplace=True)
+
 	
 	def merge_web_and_imotion_data(self):
-		web_data = pd.read_csv(self.web_data_path)
-		eye_tracking_data = self.process_imotion_data()
+		
 		# Make sure the timestamps are in datetime format
-		web_data['Time (UTC)'] = pd.to_datetime(web_data['Time (UTC)'])
-		eye_tracking_data['Timestamp'] = pd.to_datetime(eye_tracking_data['Timestamp'])
+		self.web_data['Time (UTC)'] = pd.to_datetime(self.web_data['Time (UTC)'])
+		self.eye_tracking_data['Timestamp'] = pd.to_datetime(self.eye_tracking_data['Timestamp'])
 
 		# Calculate the time difference for the 'eye_tracking_data' from its start
-		eye_tracking_data['Time From Start'] = eye_tracking_data['Timestamp'] - eye_tracking_data['Timestamp'].iloc[0]
+		self.eye_tracking_data['Time From Start'] = self.eye_tracking_data['Timestamp'] - self.eye_tracking_data['Timestamp'].iloc[0]
 
 		# Apply this difference to the 'web_data' timestamps
-		eye_tracking_data['Aligned Timestamp'] = web_data['Time (UTC)'].iloc[0] + eye_tracking_data['Time From Start']
+		self.eye_tracking_data['Aligned Timestamp'] = self.web_data['Time (UTC)'].iloc[0] + self.eye_tracking_data['Time From Start']
 		# If you don't need the original timestamps or the 'Time From Start' in your final dataframe, you can drop them
-		eye_tracking_data.drop(['Timestamp', 'Time From Start'], axis=1, inplace=True)
+		self.eye_tracking_data.drop(['Timestamp', 'Time From Start'], axis=1, inplace=True)
 
 		# Make the 'Aligned Timestamp' the index of 'eye_tracking_data'
-		eye_tracking_data.set_index('Aligned Timestamp', inplace=True)
+		self.eye_tracking_data.set_index('Aligned Timestamp', inplace=True)
 
 		# Make 'Time (UTC)' the index of 'web_data'
-		web_data.set_index('Time (UTC)', inplace=True)
+		self.web_data.set_index('Time (UTC)', inplace=True)
 
 		# Now merge both dataframes on nearest matching time
-		merged_data = pd.merge_asof(web_data, eye_tracking_data, left_index=True, right_index=True, direction='nearest')
+		self.merged_data = pd.merge_asof(self.web_data, self.eye_tracking_data, left_index=True, right_index=True, direction='nearest')
 
-		merged_data.reset_index(inplace=True)
-		
-		return merged_data
+		self.merged_data.reset_index(inplace=True)
 
 	def process_data(self):
 
-		merged_data = self.merge_web_and_imotion_data()
+		# Assuming `existing_screenshots` is a dictionary storing existing screenshots
+		# Key: URL, Value: Screenshot Image object or byte array
+		existing_screenshots = {}
+
+		# Assuming `output_data` is a pandas DataFrame initialized somewhere above this code
+		# Assuming `web_data` is a pandas DataFrame containing URLs and their corresponding image data
+
+		# Dictionary to store the screenshots for the current session
+		current_screenshots = {}
+		# Iterate over the dictionary and save each DataFrame as a separate CSV file
+		for url in self.unique_urls:
+
+			screenshot_exists = url in existing_screenshots
+
+			if screenshot_exists:
+			# Use the existing screenshot from the dictionary
+				current_screenshots[url] = existing_screenshots[url]
+				print(f"Screenshot already exists for: {url}")
+			else:
+				print("Screenshot does not exist, loading the page...")
+				# Navigate to the webpage
+				# call the instance of the WebPageCapture class
+				screenshot_img= self.capture_handler.capture_screenshot(url)
+				# Store the screenshot in the current session dictionary
+				current_screenshots[url] = screenshot_img
+		# Update the data frames accordingly
+		for url, img in current_screenshots.items():
+			# Here you might want to convert img (PIL Image) to a format suitable for your DataFrame or application needs
+			# For demonstration, let's assume we're storing the image in a byte array format
+			img_byte_array = BytesIO()
+			img.save(img_byte_array, format='PNG')
+			img_bytes = img_byte_array.getvalue()
+
+			# Add or update the data frame with the URL and the screenshot data
+			if url in self.output_data['URL'].values:
+				self.output_data.loc[self.output_data['URL'] == url, 'Image_Data'] = [img_bytes]
+				self.web_data.loc[self.web_data['URL'] == url, 'Image_Data'] = [img_bytes]
+			else:
+				new_row = pd.DataFrame([{'URL': url, 'Image_Data': img_bytes}])
+				self.output_data = pd.concat([self.output_data, new_row], ignore_index=True)
+				self.web_data = pd.concat([self.web_data, new_row], ignore_index=True)
+		
+		self.process_merged_data()
+		self.process_imotion_data()
+		self.process_merged_data()
+	
+	
+	def process_merged_data(self):
+		self.merge_web_and_imotion_data()
 		 # **************************** Merged Data pre-processing ********************************************************
-		merged_data['ET_GazeRightx'].interpolate(method='linear', inplace=True)
-		merged_data['ET_GazeLeftx'].interpolate(method='linear', inplace=True)
-		merged_data['ET_GazeLefty'].interpolate(method='linear', inplace=True)
-		merged_data['ET_GazeRighty'].interpolate(method='linear', inplace=True)
-		merged_data = merged_data.ffill() # Forward fill
-		merged_data = merged_data.bfill() # Backward fill
+		self.merged_data['ET_GazeRightx'].interpolate(method='linear', inplace=True)
+		self.merged_data['ET_GazeLeftx'].interpolate(method='linear', inplace=True)
+		self.merged_data['ET_GazeLefty'].interpolate(method='linear', inplace=True)
+		self.merged_data['ET_GazeRighty'].interpolate(method='linear', inplace=True)
+		self.merged_data = self.merged_data.ffill() # Forward fill
+		self.merged_data = self.merged_data.bfill() # Backward fill
 
 		# Calculate average gaze position
-		merged_data['MeanGazeX'] = merged_data[['ET_GazeRightx', 'ET_GazeLeftx']].mean(axis=1)
-		merged_data['MeanGazeY'] = merged_data[['ET_GazeRighty', 'ET_GazeLefty']].mean(axis=1)
-		merged_data.isnull().sum() # check the null values
+		self.merged_data['MeanGazeX'] = self.merged_data[['ET_GazeRightx', 'ET_GazeLeftx']].mean(axis=1)
+		self.merged_data['MeanGazeY'] = self.merged_data[['ET_GazeRighty', 'ET_GazeLefty']].mean(axis=1)
+		self.merged_data.isnull().sum() # check the null values
+	
+	def split_data(self):
+		# Split the data into different sections based on the URL
+		
+		self.split_data = self.merged_data.groupby('URL')
+		# Iterate over the groups and save each group as a separate CSV file
+		for name, group in self.split_data:
+			# Save each group as a separate dataframe
+			pass
 
-		# get a dictionary for the split based on the URL
-		data_dict = {url: df for url, df in merged_data.groupby('URL')}
 
-		# Iterate over the dictionary and save each DataFrame as a separate CSV file
-		for url, df in data_dict.items():
-			# Create a valid file name from the URL
-			filename = url.replace('https://', '').replace('/', '_') + '.csv'
+	def plot_heatmap(self, data, x, y, title, xlabel, ylabel, output_path):
+		fig, ax = plt.subplots(figsize=(10, 8))
+		heatmap = ax.hist2d(data[x], data[y], bins=100, cmap='viridis')
+		ax.set_title(title)
+		ax.set_xlabel(xlabel)
+		ax.set_ylabel(ylabel)
+		fig.colorbar(heatmap[3], ax=ax)
+		plt.savefig(output_path)
+		plt.show()
 			
 			
 
