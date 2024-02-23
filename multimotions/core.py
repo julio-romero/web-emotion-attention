@@ -31,7 +31,8 @@ class WebPageCapture:
     def start_chrome_driver(self):
         """Helper function to start the Chrome webdriver."""
         chrome_options = self.get_chrome_options()
-        driver = webdriver.Chrome(self.chrome_driver_path)
+        service = webdriver.ChromeService(executable_path=self.chrome_driver_path)
+        driver = webdriver.Chrome(service=service)
         driver.options = chrome_options
         return driver
 
