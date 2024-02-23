@@ -1,30 +1,48 @@
 import os
 import time
+from io import BytesIO
 
 import keyboard
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pyautogui
+from PIL import Image
 from pynput.mouse import Listener
 from scipy.ndimage import gaussian_filter
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException
-from PIL import Image
-from io import BytesIO
+from selenium.webdriver.chrome.options import Options
 
 
 class WebPageCapture:
-	def __init__(self, chrome_driver_path):
+	def __init__(self, chrome_driver_path, window_size=(1920, 1080)):
 		self.chrome_driver_path = chrome_driver_path
+		self.window_size = window_size
 	
-	def capture_screenshot(self, url):
+
+	def get_chrome_options(self):
+		"""Helper function to get the Chrome options for the webdriver."""
 		chrome_options = Options()
 		chrome_options.add_argument("--headless")
-		chrome_options.add_argument("--window-size=1920x1080")
+		chrome_options.add_argument(f"--window-size={self.window_size[0]}x{self.window_size[1]}")
 		chrome_options.add_argument("--hide-scrollbars")
-		driver = webdriver.Chrome(self.chrome_driver_path, options=chrome_options)
+		return chrome_options
+	
+	def start_chrome_driver(self):
+		"""Helper function to start the Chrome webdriver."""
+		chrome_options = self.get_chrome_options()
+		driver = webdriver.Chrome(self.chrome_driver_path)
+		driver.options = chrome_options
+		return driver
+
+
+	
+	def capture_screenshot(self, url: str):
+		"""
+		
+		"""
+		driver = self.start_chrome_driver()
 		driver.set_page_load_timeout(60)  # set the page load timeout
 		
 		for _ in range(5):  # Retry up to 5 times
@@ -48,11 +66,7 @@ class WebPageCapture:
 		
 	
 	def capture_html(self, url, output_path):
-		chrome_options = Options()
-		chrome_options.add_argument("--headless")
-		chrome_options.add_argument("--window-size=1920x1080")
-		chrome_options.add_argument("--hide-scrollbars")
-		driver = webdriver.Chrome(self.chrome_driver_path, options=chrome_options)
+		driver = self.start_chrome_driver()
 		driver.get(url)
 		with open(output_path, 'w', encoding='utf-8') as file:
 			file.write(driver.page_source)
