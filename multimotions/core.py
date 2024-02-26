@@ -15,6 +15,9 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 import warnings
 
+from scipy.stats import gaussian_kde
+from scipy.ndimage import gaussian_filter
+
 warnings.filterwarnings("ignore")
 #from pymongo import MongoClient
 
@@ -336,12 +339,16 @@ class DataProcessor:
 			
 
 
-	def plot_heatmap(self, data):
+	def plot_heatmap(self):
+		data = self.merged_data.copy()
 		# Get the unique image path from the dataframe
-		img_path = data['Image_Path'].unique()[0]
+		# img_path = data['Image_Path'].unique()[0]
+		
+		# Get the image from the row values of the dataframe
+		image_data = data['Image_Data'].values[0]
+		img = Image.open(BytesIO(image_data))
 
 		# Load screenshot as image
-		img = Image.open(img_path)
 		img_width, img_height = img.size
 		
 		# Calculate the normalized x and y coordinates
@@ -420,18 +427,12 @@ class DataProcessor:
 		# Initialize an empty list to store all output 
 		outputs=[]
 		# Iterate over the groups and save each group as a separate CSV file
-		for data in url_dataframes:
-			outputs.extend(self.plot_heatmap(data))
+		# for data in url_dataframes:
+		# 	outputs.extend(self.plot_heatmap(data))
+		smoothed = gaussian_filter(display_array, sigma=50)
+		plt.imshow(smoothed, cmap="jet", alpha=0.5)
+		plt.show()  # Show the plot for each screenshot and activity pair
 		return outputs
-
-	
-		
-			
-			
-
-			# smoothed = gaussian_filter(display_array, sigma=50)
-			# plt.imshow(smoothed, cmap="jet", alpha=0.5)
-			# plt.show()  # Show the plot for each screenshot and activity pair
 # QA from here
 	def process_imotion_data(self, initial_rows_to_skip=28):
 		imotion_data = pd.read_csv(self.imotion_data_path, skiprows=initial_rows_to_skip)
@@ -506,9 +507,12 @@ class DataProcessor:
 		# Make 'Time (UTC)' the index of 'web_data'
 		self.web_data.set_index("Time (UTC)", inplace=True)
 
-		# Hotfix drop na
-		self.web_data.dropna(inplace=True)
-
+		# Get the last not NaT time
+		last_time = self.web_data.index[-2]
+		size = self.web_data.index.size - 1
+		self.web_data.reset_index(inplace=True)
+		self.web_data.at[size,'Time (UTC)'] = last_time
+		self.web_data.set_index("Time (UTC)", inplace=True)
 		# Now merge both dataframes on nearest matching time
 		self.merged_data = pd.merge_asof(
 			self.web_data,
@@ -570,16 +574,27 @@ class DataProcessor:
 	def process_merged_data(self):
 		self.merge_web_and_imotion_data()
 		# **************************** Merged Data pre-processing ********************************************************
-		self.merged_data["ET_GazeRightx"].interpolate(method="linear", inplace=True)
-		self.merged_data["ET_GazeLeftx"].interpolate(method="linear", inplace=True)
-		self.merged_data["ET_GazeLefty"].interpolate(method="linear", inplace=True)
-		self.merged_data["ET_GazeRighty"].interpolate(method="linear", inplace=True)
+
+		tmp_df = self.merged_data.copy()
+
+		et_gaze_rightx = tmp_df["ET_GazeRightx"].interpolate(method="linear")
+		et_gaze_leftx = tmp_df["ET_GazeLeftx"].interpolate(method="linear")
+		et_gaze_lefty = tmp_df["ET_GazeLefty"].interpolate(method="linear")
+		et_gaze_righty = tmp_df["ET_GazeRighty"].interpolate(method="linear")
+
+		self.merged_data["ET_GazeRightx"] = et_gaze_rightx
+		self.merged_data["ET_GazeLeftx"] = et_gaze_leftx
+		self.merged_data["ET_GazeLefty"] = et_gaze_lefty
+		self.merged_data["ET_GazeRighty"] = et_gaze_righty
 		self.merged_data = self.merged_data.ffill()  # Forward fill
 		self.merged_data = self.merged_data.bfill()  # Backward fill
 
 		# Calculate average gaze position
-		self.merged_data["MeanGazeX"] = self.merged_data[["ET_GazeRightx", "ET_GazeLeftx"]].mean(axis=1)
-		self.merged_data["MeanGazeY"] = self.merged_data[["ET_GazeRighty", "ET_GazeLefty"]].mean(axis=1)
+		mean_gaze_x = self.merged_data[["ET_GazeRightx", "ET_GazeLeftx"]].mean(axis=1)
+		mean_gaze_y = self.merged_data[["ET_GazeRighty", "ET_GazeLefty"]].mean(axis=1)
+
+		self.merged_data["MeanGazeX"] = mean_gaze_x
+		self.merged_data["MeanGazeY"] = mean_gaze_y
 		self.merged_data.isnull().sum()  # check the null values
 
 	def split_data(self):
@@ -593,12 +608,12 @@ class DataProcessor:
 			url_dataframes.append(group)
 		return url_dataframes
 
-	def plot_heatmap(self, data):
+	def plot_heatmap(self):
 		# Get the unique image path from the dataframe
-		img_path = data["Image_Path"].unique()[0]
-
-		# Load screenshot as image
-		img = Image.open(img_path)
+		# img_path = data["Image_Path"].unique()[0]
+		data = self.merged_data.copy()	
+		image_data = data['Image_Data'].values[0]
+		img = Image.open(BytesIO(image_data))
 		img_width, img_height = img.size
 
 		# Calculate the normalized x and y coordinates
