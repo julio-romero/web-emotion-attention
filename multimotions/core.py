@@ -16,6 +16,7 @@ from selenium.webdriver.chrome.options import Options
 import warnings
 
 warnings.filterwarnings("ignore")
+#from pymongo import MongoClient
 
 
 class WebPageCapture:
@@ -432,3 +433,24 @@ class DataProcessor:
         for data in url_dataframes:
             outputs.extend(self.plot_heatmap(data))
         return outputs
+
+    #def connection_mongo(self):
+        #uri = "#"
+        #client = MongoClient(uri)
+        #db = client("Imotions DB")
+        #return db
+
+
+    #def collect(self):
+        #db = self.connection_mongo
+        #collection = db["imotions"]
+        #result = collection.find({})
+        #df = pd.DataFrame(result).sort_values('date')
+        #return df
+
+    #def collect_df(self, db, df, collection_name):
+        #data = df.to_dict(orient='records')
+        #collect = db[collection_name]
+        #insert_id = collect.insert_many(data)
+        #return insert_id
+        
