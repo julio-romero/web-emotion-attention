@@ -13,6 +13,9 @@ from scipy.ndimage import gaussian_filter
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
+import warnings
+
+warnings.filterwarnings("ignore")
 
 
 class WebPageCapture:
@@ -254,6 +257,9 @@ class DataProcessor:
 
         # Make 'Time (UTC)' the index of 'web_data'
         self.web_data.set_index("Time (UTC)", inplace=True)
+
+        # Hotfix drop na
+        self.web_data.dropna(inplace=True)
 
         # Now merge both dataframes on nearest matching time
         self.merged_data = pd.merge_asof(
