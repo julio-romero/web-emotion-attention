@@ -1,4 +1,4 @@
-from multimotions.core import DataProcessor
+from multimotions import DataProcessor
 import matplotlib.pyplot as plt
 
 def test_data_processor_creation():
@@ -18,6 +18,6 @@ def test_create_heatmap():
     plt.show()
 
 if __name__ == "__main__":
-    # test_data_processor_creation()
-    # test_data_processing()
+    test_data_processor_creation()
+    test_data_processing()
     test_create_heatmap()
