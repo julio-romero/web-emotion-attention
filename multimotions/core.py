@@ -1,5 +1,6 @@
 import os
 import time
+import warnings
 from io import BytesIO
 
 import keyboard
@@ -10,76 +11,15 @@ import pyautogui
 from PIL import Image
 from pynput.mouse import Listener
 from scipy.ndimage import gaussian_filter
+from scipy.stats import gaussian_kde
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
-import warnings
 
-from scipy.stats import gaussian_kde
-from scipy.ndimage import gaussian_filter
+from multimotions.webpagecapture import WebPageCapture
 
 warnings.filterwarnings("ignore")
 #from pymongo import MongoClient
-
-
-class WebPageCapture:
-	def __init__(self, chrome_driver_path, window_size=(1920, 1080)):
-		self.chrome_driver_path = chrome_driver_path
-		self.window_size = window_size
-
-	def get_chrome_options(self):
-		"""Helper function to get the Chrome options for the webdriver."""
-		chrome_options = Options()
-		chrome_options.add_argument("--headless")
-		chrome_options.add_argument(f"--window-size={self.window_size[0]}x{self.window_size[1]}")
-		chrome_options.add_argument("--hide-scrollbars")
-		return chrome_options
-
-	def start_chrome_driver(self):
-		"""Helper function to start the Chrome webdriver."""
-		chrome_options = self.get_chrome_options()
-		service = webdriver.ChromeService(executable_path=self.chrome_driver_path)
-		driver = webdriver.Chrome(service=service)
-		driver.options = chrome_options
-		return driver
-
-	def capture_screenshot(self, url: str):
-		"""
-		Capture a screenshot of a webpage using the Chrome webdriver.
-		Args:
-		url (str): The URL of the webpage to capture.
-		Returns:
-		Image: The screenshot of the webpage as a PIL Image object.
-		"""
-		driver = self.start_chrome_driver()
-		driver.set_page_load_timeout(60)  # set the page load timeout
-
-		for _ in range(5):  # Retry up to 5 times
-			try:
-				start_time = time.time()
-				driver.get(url)
-				end_time = time.time()
-				print(f"Time taken to load {url}: {end_time - start_time} seconds")
-				break
-			except TimeoutException:
-				print("Loading took too much time, retrying...")
-		# Set the width and height of the browser window to the size of the whole document
-		total_width = driver.execute_script("return document.body.offsetWidth")
-		total_height = driver.execute_script("return document.body.parentNode.scrollHeight")
-		driver.set_window_size(total_width, total_height)
-		screenshot_bytes = driver.get_screenshot_as_png()
-		# Optionally, convert bytes to Image for manipulation or viewing
-		screenshot_img = Image.open(BytesIO(screenshot_bytes))
-		driver.quit()
-		return screenshot_img
-
-	def capture_html(self, url, output_path):
-		driver = self.start_chrome_driver()
-		driver.get(url)
-		with open(output_path, "w", encoding="utf-8") as file:
-			file.write(driver.page_source)
-		driver.quit()
-
 
 class DataProcessor:
 	def __init__(self, web_data_path, imotion_data_path, output_dir):
